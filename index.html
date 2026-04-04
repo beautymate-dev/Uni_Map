@@ -147,6 +147,10 @@
     .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .dot.ok  { background: var(--accent); }
     .dot.err { background: var(--danger); }
+    .dot.yes    { background: #2d7a3d; }
+    .dot.no     { background: #c0392b; }
+    .dot.maybe  { background: #d4a017; }
+    .dot.unknown{ background: #aaa; }
 
     .uni-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -183,7 +187,7 @@
 
 <header>
   <h1>University Map</h1>
-  <p>Upload a spreadsheet — first column should be university names</p>
+  <p>Upload a spreadsheet — column 1: university name &nbsp;·&nbsp; column 3: Outcome (Yes / No / Maybe)</p>
 </header>
 
 <main>
@@ -195,6 +199,13 @@
         <p><strong>Click to browse</strong> or drag &amp; drop<br>.xlsx, .xls or .csv</p>
       </div>
       <input type="file" id="file-in" accept=".xlsx,.xls,.csv" style="display:none" />
+
+      <div style="display:flex;gap:1rem;margin-top:0.85rem;font-size:0.72rem;color:var(--muted);">
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:9px;height:9px;border-radius:50%;background:#2d7a3d;display:inline-block;flex-shrink:0"></span>Yes</span>
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:9px;height:9px;border-radius:50%;background:#c0392b;display:inline-block;flex-shrink:0"></span>No</span>
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:9px;height:9px;border-radius:50%;background:#d4a017;display:inline-block;flex-shrink:0"></span>Maybe</span>
+        <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:9px;height:9px;border-radius:50%;background:#aaa;display:inline-block;flex-shrink:0"></span>Unknown</span>
+      </div>
 
       <div id="prog-wrap">
         <div class="track"><div class="fill" id="fill"></div></div>
@@ -219,12 +230,6 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 18
 }).addTo(map);
 
-const mkIcon = L.divIcon({
-  className: '',
-  html: '<div style="width:11px;height:11px;background:#2d5a3d;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>',
-  iconSize: [11, 11], iconAnchor: [5, 5]
-});
-
 let activeMarkers = [];
 
 // ── UI refs ────────────────────────────────────────────────
@@ -242,52 +247,71 @@ dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
 dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFile(e.dataTransfer.files[0]); });
 fileIn.addEventListener('change', e => handleFile(e.target.files[0]));
 
-// ── File reading ───────────────────────────────────────────
 function handleFile(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    let names = [];
+    let rows = [];
     if (file.name.toLowerCase().endsWith('.csv')) {
-      names = e.target.result.split('\n')
-        .map(l => l.split(',')[0].trim().replace(/^"|"$/g, ''))
-        .filter(Boolean);
+      rows = e.target.result.split('\n').map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
     } else {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      names = XLSX.utils.sheet_to_json(ws, { header: 1 })
-        .map(r => (r[0] || '').toString().trim())
-        .filter(Boolean);
+      rows = XLSX.utils.sheet_to_json(ws, { header: 1 }).map(r => r.map(c => (c || '').toString().trim()));
     }
 
-    // Skip header row if it looks like a label
-    if (names.length && /^(name|university|institution|school|college)$/i.test(names[0])) {
-      names = names.slice(1);
+    // Skip header row if first cell looks like a label
+    if (rows.length && /^(name|university|institution|school|college)$/i.test(rows[0][0])) {
+      rows = rows.slice(1);
     }
 
-    // Append "University" where needed
-    names = names.map(n => /university|college|institute|school/i.test(n) ? n : n + ' University');
+    // Build entries: { name, outcome }
+    let entries = rows
+      .filter(r => r[0] && r[0].length > 1)
+      .map(r => ({
+        name: /university|college|institute|school/i.test(r[0]) ? r[0] : r[0] + ' University',
+        outcome: (r[2] || '').trim()   // column 3 (zero-indexed: index 2)
+      }));
 
-    if (!names.length) { alert('No names found in the first column.'); return; }
-    geocodeAll(names);
+    if (!entries.length) { alert('No names found in the first column.'); return; }
+    geocodeAll(entries);
   };
 
   if (file.name.toLowerCase().endsWith('.csv')) reader.readAsText(file);
   else reader.readAsArrayBuffer(file);
 }
 
+// ── Outcome colour helper ──────────────────────────────────
+function outcomeStyle(outcome) {
+  switch ((outcome || '').toLowerCase().trim()) {
+    case 'yes':   return { color: '#2d7a3d', cls: 'yes' };
+    case 'no':    return { color: '#c0392b', cls: 'no' };
+    case 'maybe': return { color: '#d4a017', cls: 'maybe' };
+    default:      return { color: '#aaaaaa', cls: 'unknown' };
+  }
+}
+
+function makeIcon(outcome) {
+  const { color } = outcomeStyle(outcome);
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:11px;height:11px;background:${color};border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>`,
+    iconSize: [11, 11], iconAnchor: [5, 5]
+  });
+}
+
 // ── Geocoding via Nominatim (free, no key) ─────────────────
-async function geocodeOne(name) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name)}&format=json&limit=1`;
+async function geocodeOne(entry) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(entry.name)}&format=json&limit=1`;
   try {
     const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
     const data = await res.json();
-    if (data.length) return { name, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), ok: true };
+    if (data.length) return { ...entry, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), ok: true };
   } catch (_) {}
-  return { name, ok: false };
+  return { ...entry, ok: false };
 }
 
-async function geocodeAll(names) {
+async function geocodeAll(entries) {
   // Reset
   activeMarkers.forEach(m => m.remove());
   activeMarkers = [];
@@ -299,38 +323,32 @@ async function geocodeAll(names) {
 
   const found = [], notFound = [];
 
-  for (let i = 0; i < names.length; i++) {
-    const pct = Math.round(((i + 1) / names.length) * 100);
+  for (let i = 0; i < entries.length; i++) {
+    const pct = Math.round(((i + 1) / entries.length) * 100);
     fill.style.width = pct + '%';
-    progLabel.textContent = `Locating ${i + 1} of ${names.length}: ${names[i]}`;
+    progLabel.textContent = `Locating ${i + 1} of ${entries.length}: ${entries[i].name}`;
 
-    const r = await geocodeOne(names[i]);
+    const r = await geocodeOne(entries[i]);
     (r.ok ? found : notFound).push(r);
 
-    // Add to sidebar live
     appendRow(r);
 
-    // Nominatim rate limit: 1 request/second
     await new Promise(res => setTimeout(res, 1100));
   }
 
   progLabel.textContent = `Done — ${found.length} located, ${notFound.length} not found`;
   setTimeout(() => { progWrap.style.display = 'none'; }, 1500);
 
-  // Fit map
   if (found.length) {
-    const bounds = found.map(r => [r.lat, r.lon]);
-    map.fitBounds(bounds, { padding: [40, 40] });
+    map.fitBounds(found.map(r => [r.lat, r.lon]), { padding: [40, 40] });
   }
 
-  // Stats
   statBar.style.display = 'block';
   statBar.innerHTML = `<b>${found.length}</b> mapped · <span class="miss">${notFound.length}</span> not found`;
 }
 
 // ── Sidebar row ────────────────────────────────────────────
 function appendRow(r) {
-  // Insert section headings once
   if (r.ok && !document.getElementById('h-found')) {
     const h = document.createElement('div');
     h.className = 'section-heading'; h.id = 'h-found'; h.textContent = 'Located';
@@ -342,14 +360,19 @@ function appendRow(r) {
     results.appendChild(h);
   }
 
+  const { cls } = outcomeStyle(r.outcome);
+  const dotClass = r.ok ? cls : 'err';
+
   const row = document.createElement('div');
   row.className = 'uni-row' + (r.ok ? '' : ' miss');
-  row.innerHTML = `<div class="dot ${r.ok ? 'ok' : 'err'}"></div><div class="uni-name" title="${r.name}">${r.name}</div>`;
+
+  const outcomeLabel = r.ok && r.outcome ? `<span style="font-size:0.7rem;color:var(--muted);margin-left:auto;flex-shrink:0">${r.outcome}</span>` : '';
+  row.innerHTML = `<div class="dot ${dotClass}"></div><div class="uni-name" title="${r.name}">${r.name}</div>${outcomeLabel}`;
 
   if (r.ok) {
-    const m = L.marker([r.lat, r.lon], { icon: mkIcon })
+    const m = L.marker([r.lat, r.lon], { icon: makeIcon(r.outcome) })
       .addTo(map)
-      .bindPopup(`<strong>${r.name}</strong>`);
+      .bindPopup(`<strong>${r.name}</strong>${r.outcome ? `<br><span style="color:#666">Outcome: ${r.outcome}</span>` : ''}`);
     activeMarkers.push(m);
 
     row.addEventListener('click', () => {
@@ -358,7 +381,6 @@ function appendRow(r) {
     });
   }
 
-  // Insert before the "not found" heading so found rows stay on top
   const missHeading = document.getElementById('h-miss');
   if (r.ok && missHeading) results.insertBefore(row, missHeading);
   else results.appendChild(row);
