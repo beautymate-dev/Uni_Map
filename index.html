@@ -28,7 +28,7 @@
       color: var(--ink);
     }
 
-    body {
+    <!-- body { -->
       display: grid;
       grid-template-rows: 64px 1fr;
       height: 100vh;
@@ -300,14 +300,59 @@ function makeIcon(outcome) {
   });
 }
 
-// ── Geocoding via Nominatim (free, no key) ─────────────────
-async function geocodeOne(entry) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(entry.name)}&format=json&limit=1`;
+// ── Geocoding via Nominatim — multi-strategy fallback ──────
+async function nominatim(query) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=1`;
   try {
     const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
     const data = await res.json();
-    if (data.length) return { ...entry, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), ok: true };
+    if (data.length) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
   } catch (_) {}
+  return null;
+}
+
+function buildVariants(name) {
+  const variants = [name];
+
+  // Strip trailing "University" and try the bare name (e.g. "Harvard" from "Harvard University")
+  const bare = name.replace(/\s+university$/i, '').replace(/\s+college$/i, '').trim();
+  if (bare !== name) variants.push(bare);
+
+  // Try swapping "X University" → "University of X"
+  const ofForm = name.replace(/^(.+?)\s+University$/i, 'University of $1');
+  if (ofForm !== name) variants.push(ofForm);
+
+  // Try swapping "University of X" → "X University"
+  const shortForm = name.replace(/^University of (.+)$/i, '$1 University');
+  if (shortForm !== name) variants.push(shortForm);
+
+  // Expand common US abbreviations
+  const expanded = name
+    .replace(/\bCal\b/gi, 'California')
+    .replace(/\bUC\b/gi, 'University of California')
+    .replace(/\bCSU\b/gi, 'California State University')
+    .replace(/\bSt\.\s*/gi, 'Saint ')
+    .replace(/\bMt\.\s*/gi, 'Mount ')
+    .replace(/\bTech\b/gi, 'Technology')
+    .replace(/\bIntl\b/gi, 'International');
+  if (expanded !== name) variants.push(expanded);
+
+  // Also try bare expanded form
+  const bareExpanded = expanded.replace(/\s+university$/i, '').trim();
+  if (bareExpanded !== expanded && bareExpanded !== bare) variants.push(bareExpanded);
+
+  return [...new Set(variants)]; // deduplicate
+}
+
+async function geocodeOne(entry) {
+  const variants = buildVariants(entry.name);
+
+  for (let i = 0; i < variants.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1100)); // rate limit between retries
+    const result = await nominatim(variants[i]);
+    if (result) return { ...entry, ...result, ok: true };
+  }
+
   return { ...entry, ok: false };
 }
 
@@ -326,7 +371,7 @@ async function geocodeAll(entries) {
   for (let i = 0; i < entries.length; i++) {
     const pct = Math.round(((i + 1) / entries.length) * 100);
     fill.style.width = pct + '%';
-    progLabel.textContent = `Locating ${i + 1} of ${entries.length}: ${entries[i].name}`;
+    progLabel.textContent = `Locating ${i + 1} of ${entries.length}: ${entries[i].name}…`;
 
     const r = await geocodeOne(entries[i]);
     (r.ok ? found : notFound).push(r);
