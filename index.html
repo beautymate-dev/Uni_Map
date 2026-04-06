@@ -131,7 +131,7 @@
 
 <header>
   <h1>University Map</h1>
-  <p>Upload a spreadsheet — column 1: university name &nbsp;·&nbsp; column 3: Outcome (Yes / No / Maybe)</p>
+  <p>Upload a spreadsheet — col 1: name &nbsp;·&nbsp; col 2: country &nbsp;·&nbsp; col 3: (spare) &nbsp;·&nbsp; col 4: Outcome (Yes / No / Maybe)</p>
 </header>
 
 <main>
@@ -246,7 +246,8 @@ function handleFile(file) {
       .filter(r => r[0] && r[0].length > 1)
       .map(r => ({
         name: /university|college|institute|school/i.test(r[0]) ? r[0] : r[0] + ' University',
-        outcome: (r[2] || '').trim()
+        country: (r[1] || '').trim(),   // column 2
+        outcome: (r[3] || '').trim()    // column 4 (shifted by country column)
       }));
 
     if (!entries.length) { alert('No names found in the first column.'); return; }
@@ -290,17 +291,18 @@ async function photon(query) {
   return null;
 }
 
-function buildVariants(name) {
-  const variants = [name];
+function buildVariants(name, country) {
+  const suffix = country ? `, ${country}` : '';
+  const variants = [name + suffix];
 
   const bare = name.replace(/\s+university$/i, '').replace(/\s+college$/i, '').trim();
-  if (bare !== name) variants.push(bare);
+  if (bare !== name) variants.push(bare + suffix);
 
   const ofForm = name.replace(/^(.+?)\s+University$/i, 'University of $1');
-  if (ofForm !== name) variants.push(ofForm);
+  if (ofForm !== name) variants.push(ofForm + suffix);
 
   const shortForm = name.replace(/^University of (.+)$/i, '$1 University');
-  if (shortForm !== name) variants.push(shortForm);
+  if (shortForm !== name) variants.push(shortForm + suffix);
 
   const expanded = name
     .replace(/\bCal\b/gi, 'California')
@@ -310,16 +312,16 @@ function buildVariants(name) {
     .replace(/\bMt\.\s*/gi, 'Mount ')
     .replace(/\bTech\b/gi, 'Technology')
     .replace(/\bIntl\b/gi, 'International');
-  if (expanded !== name) variants.push(expanded);
+  if (expanded !== name) variants.push(expanded + suffix);
 
   const bareExpanded = expanded.replace(/\s+university$/i, '').trim();
-  if (bareExpanded !== expanded && bareExpanded !== bare) variants.push(bareExpanded);
+  if (bareExpanded !== expanded && bareExpanded !== bare) variants.push(bareExpanded + suffix);
 
   return [...new Set(variants)];
 }
 
 async function geocodeOne(entry) {
-  const variants = buildVariants(entry.name);
+  const variants = buildVariants(entry.name, entry.country);
   for (let i = 0; i < variants.length; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 600));
     const result = await photon(variants[i]);
@@ -399,7 +401,7 @@ function appendRow(r) {
   if (r.ok) {
     marker = L.marker([r.lat, r.lon], { icon: makeIcon(r.outcome) })
       .addTo(map)
-      .bindPopup(`<strong>${r.name}</strong>${r.outcome ? `<br><span style="color:#666">Outcome: ${r.outcome}</span>` : ''}`);
+      .bindPopup(`<strong>${r.name}</strong>${r.country ? `<br><span style="color:#666">${r.country}</span>` : ''}${r.outcome ? `<br><span style="color:#666">Outcome: ${r.outcome}</span>` : ''}`);
 
     row.addEventListener('click', () => {
       map.setView([r.lat, r.lon], 13, { animate: true });
