@@ -36,7 +36,7 @@
     header h1 { font-family: 'DM Serif Display', serif; font-size: 1.4rem; font-weight: 400; letter-spacing: -0.01em; }
     header p { font-size: 0.8rem; color: var(--muted); font-weight: 300; }
 
-    main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+    main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; height: 100%; min-height: 0; }
 
     .sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--white); overflow: hidden; }
 
@@ -59,6 +59,7 @@
 
     /* Filter buttons */
     .filters { display: none; gap: 0.4rem; margin-top: 0.85rem; flex-wrap: wrap; }
+    .filters.visible { display: flex; }
     .filter-btn {
       font-size: 0.72rem; font-family: 'DM Sans', sans-serif; padding: 3px 10px;
       border-radius: 999px; border: 1.5px solid var(--border); background: transparent;
@@ -113,7 +114,7 @@
     #stat-bar b { color: var(--accent); font-weight: 500; }
     #stat-bar .miss { color: var(--danger); }
 
-    #map { width: 100%; height: 100%; z-index: 0; }
+    #map { width: 100%; height: 100%; min-height: 0; z-index: 0; }
 
     .leaflet-popup-content-wrapper {
       font-family: 'DM Sans', sans-serif; font-size: 0.82rem;
@@ -180,6 +181,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> © <a href="https://carto.com">CARTO</a>',
   maxZoom: 18
 }).addTo(map);
+window.addEventListener('load', () => map.invalidateSize());
 
 // Store all placed entries for filtering
 let allEntries = [];  // { r, marker, row }
@@ -332,7 +334,7 @@ async function geocodeAll(entries) {
   allEntries = [];
   results.innerHTML = '';
   statBar.style.display = 'none';
-  filters.style.display = 'none';
+  filters.classList.remove('visible');
   activeFilter = 'all';
   document.querySelectorAll('.filter-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.filter === 'all');
@@ -363,7 +365,7 @@ async function geocodeAll(entries) {
   if (foundCount > 0) {
     const bounds = allEntries.filter(e => e.r.ok).map(e => [e.r.lat, e.r.lon]);
     map.fitBounds(bounds, { padding: [40, 40] });
-    filters.style.display = 'flex';
+    filters.classList.add('visible');
   }
 
   statBar.style.display = 'block';
